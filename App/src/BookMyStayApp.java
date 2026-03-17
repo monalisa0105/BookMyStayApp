@@ -1,6 +1,6 @@
 import java.util.*;
 
-// Reservation: Represents a booking request
+// Reservation (Booking Request)
 class Reservation {
     private String guestName;
     private String roomType;
@@ -17,40 +17,104 @@ class Reservation {
     public String getRoomType() {
         return roomType;
     }
+}
 
-    public void display() {
-        System.out.println("Guest: " + guestName + " | Requested Room: " + roomType);
+// Inventory Service (State Holder)
+class InventoryService {
+    private Map<String, Integer> inventory = new HashMap<>();
+
+    public void addRoom(String type, int count) {
+        inventory.put(type, count);
+    }
+
+    public int getAvailability(String type) {
+        return inventory.getOrDefault(type, 0);
+    }
+
+    public void decrement(String type) {
+        inventory.put(type, inventory.get(type) - 1);
+    }
+
+    public void displayInventory() {
+        System.out.println("\nCurrent Inventory:");
+        for (String type : inventory.keySet()) {
+            System.out.println(type + " -> " + inventory.get(type));
+        }
     }
 }
 
 // Booking Request Queue (FIFO)
-class BookingRequestQueue {
-    private Queue<Reservation> queue;
+class BookingQueue {
+    private Queue<Reservation> queue = new LinkedList<>();
 
-    public BookingRequestQueue() {
-        queue = new LinkedList<>();
+    public void addRequest(Reservation r) {
+        queue.offer(r);
     }
 
-    // Add booking request (enqueue)
-    public void addRequest(Reservation reservation) {
-        queue.offer(reservation);
-        System.out.println("Request added for " + reservation.getGuestName());
+    public Reservation getNextRequest() {
+        return queue.poll(); // dequeue
     }
 
-    // View all queued requests (read-only)
-    public void viewRequests() {
-        System.out.println("\nBooking Requests in Queue (FIFO Order):");
+    public boolean isEmpty() {
+        return queue.isEmpty();
+    }
+}
 
-        if (queue.isEmpty()) {
-            System.out.println("No booking requests available.");
+// Booking Service (Allocation Logic)
+class BookingService {
+
+    private InventoryService inventoryService;
+
+    // Track allocated room IDs per room type
+    private Map<String, Set<String>> allocatedRooms = new HashMap<>();
+
+    // Track all room IDs globally (uniqueness)
+    private Set<String> allRoomIds = new HashSet<>();
+
+    private int idCounter = 1;
+
+    public BookingService(InventoryService inventoryService) {
+        this.inventoryService = inventoryService;
+    }
+
+    public void processBooking(Reservation reservation) {
+
+        String type = reservation.getRoomType();
+
+        System.out.println("\nProcessing request for " + reservation.getGuestName());
+
+        // Check availability
+        if (inventoryService.getAvailability(type) <= 0) {
+            System.out.println("No rooms available for type: " + type);
             return;
         }
 
-        for (Reservation r : queue) {
-            r.display();
-        }
+        // Generate unique room ID
+        String roomId;
+        do {
+            roomId = type.substring(0, 1).toUpperCase() + idCounter++;
+        } while (allRoomIds.contains(roomId));
+
+        // Store globally
+        allRoomIds.add(roomId);
+
+        // Store per room type
+        allocatedRooms.putIfAbsent(type, new HashSet<>());
+        allocatedRooms.get(type).add(roomId);
+
+        // Inventory update (IMPORTANT)
+        inventoryService.decrement(type);
+
+        // Confirm reservation
+        System.out.println("Reservation CONFIRMED for " + reservation.getGuestName());
+        System.out.println("Room Type: " + type);
+        System.out.println("Allocated Room ID: " + roomId);
     }
 
+    public void displayAllocations() {
+        System.out.println("\nAllocated Rooms:");
+        for (String type : allocatedRooms.keySet()) {
+            System.out.println(type + " -> " + allocatedRooms.get(type));
     // Peek next request (without removing)
     public Reservation peekNext() {
         return queue.peek();
@@ -151,28 +215,32 @@ public class BookMyStayApp {
 
     public static void main(String[] args) {
 
-        // Step 1: Create Booking Queue
-        BookingRequestQueue bookingQueue = new BookingRequestQueue();
+        // Step 1: Setup Inventory
+        InventoryService inventory = new InventoryService();
+        inventory.addRoom("Single", 2);
+        inventory.addRoom("Double", 1);
+        inventory.addRoom("Suite", 1);
 
-        // Step 2: Guests submit booking requests
-        System.out.println("Guests are submitting booking requests...\n");
+        // Step 2: Create Booking Queue
+        BookingQueue queue = new BookingQueue();
 
-        bookingQueue.addRequest(new Reservation("Alice", "Single"));
-        bookingQueue.addRequest(new Reservation("Bob", "Double"));
-        bookingQueue.addRequest(new Reservation("Charlie", "Suite"));
-        bookingQueue.addRequest(new Reservation("Diana", "Single"));
+        queue.addRequest(new Reservation("Alice", "Single"));
+        queue.addRequest(new Reservation("Bob", "Single"));
+        queue.addRequest(new Reservation("Charlie", "Single")); // exceeds availability
+        queue.addRequest(new Reservation("Diana", "Suite"));
 
-        // Step 3: View all requests (FIFO order preserved)
-        bookingQueue.viewRequests();
+        // Step 3: Booking Service
+        BookingService bookingService = new BookingService(inventory);
 
-        // Step 4: Peek next request (no removal)
-        System.out.println("\nNext request to be processed:");
-        Reservation next = bookingQueue.peekNext();
-
-        if (next != null) {
-            next.display();
+        // Step 4: Process Queue (FIFO)
+        while (!queue.isEmpty()) {
+            Reservation r = queue.getNextRequest();
+            bookingService.processBooking(r);
         }
 
+        // Step 5: Display Results
+        bookingService.displayAllocations();
+        inventory.displayInventory();
         // IMPORTANT:
         // - No inventory updates
         // - No room allocation
